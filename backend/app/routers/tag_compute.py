@@ -7,6 +7,10 @@ from fastapi import APIRouter, HTTPException, Request
 
 from app.schemas import ActionPayload, ActionResult
 from app.services.tag_compute import compute_tag, get_compute_result, list_compute_results, recompute_tag
+from app.services.tag_dependency import (
+    DependencySourceUnavailable,
+    get_task_dependency_report,
+)
 from app.store import store
 
 router = APIRouter(prefix="/api/tag-compute", tags=["tag_compute"])
@@ -39,16 +43,30 @@ def run(task_id: str) -> ActionResult:
     try:
         result = compute_tag(task_id)
         return ActionResult(ok=True, message="Computed", entry=result.model_dump())
+    except DependencySourceUnavailable as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.get("/{task_id}/result")
 def result(task_id: str) -> dict[str, Any]:
-    res = get_compute_result(task_id)
+    try:
+        res = get_compute_result(task_id)
+    except DependencySourceUnavailable as e:
+        raise HTTPException(status_code=409, detail=str(e))
     if res is None:
         raise HTTPException(status_code=404, detail="Result not found")
     return res
+
+
+@router.get("/{task_id}/dependencies")
+def dependencies(task_id: str) -> dict[str, Any]:
+    """从已持久化的标签依赖诊断数据查验字段来源解析与同版本复用情况。"""
+    report = get_task_dependency_report(task_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return report
 
 
 @router.get("/artifacts/all")
@@ -62,6 +80,8 @@ def recompute(task_id: str, payload: dict[str, Any] | None = None) -> ActionResu
     try:
         result = recompute_tag(task_id, scope)
         return ActionResult(ok=True, message="Recomputed", entry=result.model_dump())
+    except DependencySourceUnavailable as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

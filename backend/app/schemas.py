@@ -397,6 +397,8 @@ class TagComputeResult(BaseModel):
     user_tag_values: list[dict[str, Any]] = Field(default_factory=list)
     output_partition: str = ""
     compute_time_ms: int = 0
+    field_version: str = ""
+    dependency_report: dict[str, Any] = Field(default_factory=dict)
 
 
 class SegmentResult(BaseModel):

@@ -4,8 +4,9 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from app.store import store
 from app.schemas import TagComputeResult
+from app.services.tag_dependency import prepare_compute_dependencies
+from app.store import store
 
 
 def _eval_condition(user: dict[str, Any], logic: str, attr_defs: dict[str, dict[str, Any]]) -> bool:
@@ -138,10 +139,10 @@ def compute_tag(task_id: str) -> TagComputeResult:
     start_time = time.time()
     scope = task_row["compute_scope"]
 
-    # 获取属性定义用于类型转换
-    attr_defs = {}
-    for attr in store.rows("attr_dict"):
-        attr_defs[attr["attr_id"]] = attr
+    # 依赖装载统一走共用字段解析流程：同字段版本复用已持久化诊断，
+    # 来源暂时不可读时抛出 DependencySourceUnavailable 中断计算，
+    # 此前已确认的计算产物不会被覆盖。
+    attr_defs, dependency_report = prepare_compute_dependencies(tag)
 
     # 模拟用户数据（实际应从事件数据生成）
     # 这里使用内存中的示例用户数据
@@ -167,6 +168,8 @@ def compute_tag(task_id: str) -> TagComputeResult:
         "user_tag_values": results[:100],  # 只存储前100条示例
         "output_partition": task_row.get("output_partition", ""),
         "compute_time_ms": int((time.time() - start_time) * 1000),
+        "field_version": dependency_report["field_version"],
+        "dependency_report": dependency_report,
     }
     store.set_artifact("tag_compute", task_id, result_data)
 

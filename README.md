@@ -75,5 +75,22 @@ npm run dev
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
 
+## 标签依赖诊断与复用
+
+标签定义检查（属性存在性）与标签计算（属性及条件装载）的依赖读取统一收敛在
+`backend/app/services/tag_dependency.py`，两处不再各自读取属性字典：
+
+- `POST /api/tag-define/dependency-check`：跨多个标签的依赖检查，逐字段解析
+  属性与来源，生成可复查的诊断数据；某条标签来源暂时不可读时整批中断。
+- 诊断分两个桶持久化：确认诊断 `tag_dependency_diagnostic`（可复用）与中断产生的
+  部分诊断 `tag_dependency_diagnostic_partial`（仅供排查，不覆盖任何已确认产物）。
+- 字段版本 `field_version` 由属性字典快照生成；标签计算/重算
+  （`POST /api/tag-compute/{task_id}/recompute`）只复用同字段版本的确认诊断，
+  来源改版后自动重新解析。计算产物中的 `dependency_report` 标明每个依赖是
+  `reused`（复用检查结果）还是 `re_resolved`（重新解析）。
+- `GET /api/tag-compute/{task_id}/dependencies`：从已持久化诊断查验字段来源
+  解析状态与同版本可复用性。
+- 来源暂时不可读时计算中断并返回 409，此前确认的计算产物与诊断保持不变。
+
 领域：数据工程
 子方向：数据分析与数据应用
